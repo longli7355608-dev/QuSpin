@@ -610,6 +610,20 @@ class hamiltonian(object):
         for func, Hd in iteritems(self._dynamic):
             self._dynamic_matvec[func] = _get_matvec_function(Hd)
 
+    def __getstate__(self):
+        """Return picklable state by dropping non-serialisable callables."""
+
+        state = self.__dict__.copy()
+        state.pop("_static_matvec", None)
+        state.pop("_dynamic_matvec", None)
+        return state
+
+    def __setstate__(self, state):
+        """Restore state and rebuild cached matvec helpers after unpickling."""
+
+        self.__dict__.update(state)
+        self._get_matvecs()
+
     ### state manipulation/observable routines
 
     def dot(self, V, time=0, check=True, out=None, overwrite_out=True, a=1.0):
