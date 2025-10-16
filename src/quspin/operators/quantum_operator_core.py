@@ -1566,6 +1566,19 @@ class quantum_operator(object):
                 self._quantum_operator[key]
             )
 
+    def __getstate__(self):
+        """Return state without cached matvec callables for pickling."""
+
+        state = dict(self.__dict__)
+        state.pop("_matvec_functions", None)
+        return state
+
+    def __setstate__(self, state):
+        """Restore state and rebuild cached matvec helpers after unpickling."""
+
+        self.__dict__.update(state)
+        self._update_matvecs()
+
 
 def isquantum_operator(obj):
     """Checks if instance is object of `quantum_operator` class.
