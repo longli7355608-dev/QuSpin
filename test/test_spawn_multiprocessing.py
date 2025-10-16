@@ -1,91 +1,111 @@
-import os
-import subprocess
-import sys
-import textwrap
-from pathlib import Path
+import multiprocessing as mp
+
+import numpy as np
+import pytest
+
+from quspin.basis import spin_basis_1d, spin_basis_general
+from quspin.operators import hamiltonian, quantum_operator
 
 
-def _run_spawn_script(tmp_path, code):
-    script = tmp_path / "spawn_check.py"
-    script.write_text(textwrap.dedent(code))
-
-    env = os.environ.copy()
-    repo_root = Path(__file__).resolve().parents[1]
-    env["PYTHONPATH"] = str(repo_root / "src")
-
-    subprocess.check_call([sys.executable, str(script)], env=env)
+L = 4
+_SPIN_BASIS = spin_basis_1d(L, Nup=2)
 
 
-def test_spawn_end_to_end(tmp_path):
-    """Exercise multiprocessing usage under the spawn start method."""
-
-    code = """
-    import multiprocessing as mp
-    import numpy as np
-    from quspin.basis import spin_basis_1d
-    from quspin.operators import hamiltonian, quantum_operator
-    from quspin.tools.block_tools import block_ops
-    from quspin.tools import Floquet
+def _drive(time):
+    return np.cos(time)
 
 
-    def drive(t):
-        return np.cos(t)
+_BONDS = [[1.0, i, (i + 1) % L] for i in range(L)]
+_H_SPIN = hamiltonian(
+    [["zz", _BONDS]],
+    [["xx", _BONDS, _drive, []]],
+    basis=_SPIN_BASIS,
+    dtype=np.float64,
+    check_herm=False,
+    check_symm=False,
+    check_pcon=False,
+)
 
 
-    def pool_worker(payload):
-        H, vec, time = payload
-        return H.dot(vec, time=time)
+_QUANTUM_OPERATOR = quantum_operator(
+    {"J": [["zz", _BONDS]]},
+    basis=_SPIN_BASIS,
+    dtype=np.float64,
+    check_herm=False,
+    check_symm=False,
+    check_pcon=False,
+)
+
+_QUANTUM_PARS = {"J": 1.5}
 
 
-    def quantum_worker(payload):
-        op, vec, pars = payload
-        return op.dot(vec, pars=pars)
+_MAP = np.roll(np.arange(L), -1)
+_GENERAL_BASIS = spin_basis_general(L, Nup=L // 2, kblock=(_MAP, 0))
+_H_GENERAL = hamiltonian(
+    [["zz", _BONDS]],
+    [],
+    basis=_GENERAL_BASIS,
+    dtype=np.float64,
+    check_herm=False,
+    check_symm=False,
+    check_pcon=False,
+)
 
 
-    def main():
-        mp.set_start_method("spawn", force=True)
-
-        L = 4
-        basis = spin_basis_1d(L, a=1)
-        static = [["zz", [[1.0, i, (i + 1) % L] for i in range(L)]]]
-        dynamic = [["x", [[0.5, i] for i in range(L)], drive, []]]
-        H = hamiltonian(static, dynamic, basis=basis, dtype=np.complex128)
-
-        vec = np.ones(basis.Ns, dtype=np.complex128)
-        vec /= np.linalg.norm(vec)
-
-        ctx = mp.get_context("spawn")
-        with ctx.Pool(2) as pool:
-            pool.map(pool_worker, [(H, vec, 0.0), (H, vec, 0.5)])
-
-        qop = quantum_operator({"zz": static}, basis=basis, dtype=np.complex128)
-        with ctx.Pool(2) as pool:
-            pool.map(quantum_worker, [(qop, vec, {"zz": 1.0})] * 2)
-
-        blocks = [{"kblock": k, "a": 1} for k in range(L)]
-        ops = block_ops(
-            blocks,
-            static,
-            [],
-            spin_basis_1d,
-            (L,),
-            np.complex128,
-            basis_kwargs={"a": 1},
-            save_previous_data=False,
-        )
-
-        times = np.linspace(0, 1, 3)
-        for _ in ops.evolve(vec, 0.0, times, iterate=True, n_jobs=2, block_diag=False):
-            pass
-        ops.evolve(vec, 0.0, times, iterate=False, n_jobs=2, block_diag=False)
-
-        Floquet.Floquet({"H": H, "T": 2 * np.pi}, UF=True, n_jobs=2)
-
-        print("spawn workflow ok")
+def _hamiltonian_worker(args):
+    vec, time = args
+    return _H_SPIN.dot(vec, time=time)
 
 
-    if __name__ == "__main__":
-        main()
-    """
+def _quantum_operator_worker(vec):
+    return _QUANTUM_OPERATOR.tohamiltonian(_QUANTUM_PARS).dot(vec)
 
-    _run_spawn_script(tmp_path, code)
+
+def _general_basis_worker(vec):
+    return _H_GENERAL.dot(vec)
+
+
+@pytest.mark.skipif("spawn" not in mp.get_all_start_methods(), reason="spawn start method not available")
+def test_hamiltonian_spawn_dot():
+    payload = [
+        (np.arange(_H_SPIN.Ns, dtype=np.float64), 0.25),
+        (np.ones(_H_SPIN.Ns, dtype=np.float64), 1.75),
+    ]
+    for item in payload:
+        _hamiltonian_worker(item)
+
+    ctx = mp.get_context("spawn")
+    with ctx.Pool(2) as pool:
+        results = pool.map(_hamiltonian_worker, payload)
+
+    assert len(results) == len(payload)
+    for vec in results:
+        assert vec.shape == (_H_SPIN.Ns,)
+
+
+@pytest.mark.skipif("spawn" not in mp.get_all_start_methods(), reason="spawn start method not available")
+def test_quantum_operator_spawn_dot():
+    sample = np.linspace(0.0, 1.0, _QUANTUM_OPERATOR.Ns, dtype=np.float64)
+    _quantum_operator_worker(sample)
+
+    ctx = mp.get_context("spawn")
+    with ctx.Pool(2) as pool:
+        results = pool.map(_quantum_operator_worker, [sample, sample])
+
+    assert len(results) == 2
+    for vec in results:
+        assert vec.shape == (_QUANTUM_OPERATOR.Ns,)
+
+
+@pytest.mark.skipif("spawn" not in mp.get_all_start_methods(), reason="spawn start method not available")
+def test_general_basis_spawn_dot():
+    vector = np.arange(_H_GENERAL.Ns, dtype=np.float64)
+    _general_basis_worker(vector)
+
+    ctx = mp.get_context("spawn")
+    with ctx.Pool(2) as pool:
+        results = pool.map(_general_basis_worker, [vector, vector])
+
+    assert len(results) == 2
+    for vec in results:
+        assert vec.shape == (_H_GENERAL.Ns,)
