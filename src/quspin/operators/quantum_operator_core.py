@@ -1566,6 +1566,15 @@ class quantum_operator(object):
                 self._quantum_operator[key]
             )
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop("_matvec_functions", None)
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._update_matvecs()
+
 
 def isquantum_operator(obj):
     """Checks if instance is object of `quantum_operator` class.
