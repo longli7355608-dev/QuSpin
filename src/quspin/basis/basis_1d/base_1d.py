@@ -1,6 +1,7 @@
 from quspin.basis.lattice import lattice_basis
 from quspin.basis.basis_1d import _check_1d_symm as _check
 import numpy as _np
+import importlib
 import scipy.sparse as _sp
 from numpy import array, cos, sin, exp, pi
 from numpy.linalg import norm, eigvalsh, svd
@@ -67,6 +68,22 @@ class basis_1d(lattice_basis):
             raise ValueError(
                 "This class is not intended" " to be instantiated directly."
             )
+
+        self._op_name = None
+        self._make_n_basis_name = None
+        if isinstance(basis_module, ModuleType):
+            self._basis_module_name = basis_module.__name__
+        else:
+            self._basis_module_name = basis_module.__module__
+
+        if isinstance(ops_module, ModuleType):
+            self._ops_module_name = ops_module.__name__
+        else:
+            self._ops_module_name = ops_module.__module__
+
+        def _assign_op(op_name):
+            self._op = getattr(ops_module, op_name)
+            self._op_name = op_name
 
         # getting arguments which are used in basis.
         kblock = blocks.get("kblock")
@@ -156,7 +173,8 @@ class basis_1d(lattice_basis):
 
             self._Nps = Np
             self._conserved = "N"
-            self._make_n_basis = basis_module.n_basis
+            self._make_n_basis_name = "n_basis"
+            self._make_n_basis = getattr(basis_module, self._make_n_basis_name)
             self._get_proj_pcon = True
 
         # shout out if pblock and zA/zB blocks defined simultaneously
@@ -183,7 +201,7 @@ class basis_1d(lattice_basis):
             self._unique_me = False
 
             basis = _np.empty((Ns,), dtype=self._basis_type)
-            self._op = ops_module.t_p_z_op
+            _assign_op("t_p_z_op")
 
             if self._basis_type == object:
                 # if object is basis type then most likely this is for single particle stuff in which case the
@@ -218,7 +236,7 @@ class basis_1d(lattice_basis):
             self._blocks_1d["zblock"] = zAblock * zBblock
 
             basis = _np.empty((Ns,), dtype=self._basis_type)
-            self._op = ops_module.t_zA_zB_op
+            _assign_op("t_zA_zB_op")
 
             if self._basis_type == object:
                 N = _np.empty(basis.shape, dtype=_np.int32)
@@ -246,7 +264,7 @@ class basis_1d(lattice_basis):
             self._unique_me = False
 
             basis = _np.empty((Ns,), dtype=self._basis_type)
-            self._op = ops_module.t_pz_op
+            _assign_op("t_pz_op")
 
             if self._basis_type == object:
                 N = _np.empty(basis.shape, dtype=_np.int32)
@@ -274,7 +292,7 @@ class basis_1d(lattice_basis):
             self._unique_me = False
 
             basis = _np.empty((Ns,), dtype=self._basis_type)
-            self._op = ops_module.t_p_op
+            _assign_op("t_p_op")
 
             if self._basis_type == object:
                 N = _np.empty(basis.shape, dtype=_np.int32)
@@ -300,7 +318,7 @@ class basis_1d(lattice_basis):
             else:
                 self._conserved = "T & Z"
             basis = _np.empty((Ns,), dtype=self._basis_type)
-            self._op = ops_module.t_z_op
+            _assign_op("t_z_op")
 
             if self._basis_type == object:
                 N = _np.empty(basis.shape, dtype=_np.int32)
@@ -326,7 +344,7 @@ class basis_1d(lattice_basis):
             else:
                 self._conserved = "T & ZA"
             basis = _np.empty((Ns,), dtype=self._basis_type)
-            self._op = ops_module.t_zA_op
+            _assign_op("t_zA_op")
 
             if self._basis_type == object:
                 N = _np.empty(basis.shape, dtype=_np.int32)
@@ -352,7 +370,7 @@ class basis_1d(lattice_basis):
             else:
                 self._conserved = "T & ZB"
             basis = _np.empty((Ns,), dtype=self._basis_type)
-            self._op = ops_module.t_zB_op
+            _assign_op("t_zB_op")
 
             if self._basis_type == object:
                 N = _np.empty(basis.shape, dtype=_np.int32)
@@ -379,7 +397,7 @@ class basis_1d(lattice_basis):
                 self._conserved += "P & Z"
             basis = _np.empty((Ns,), dtype=self._basis_type)
             N = _np.empty((Ns,), dtype=_np.int8)
-            self._op = ops_module.p_z_op
+            _assign_op("p_z_op")
 
             if Np is None:
                 Ns = basis_module.p_z_basis(L, pblock, zblock, self._pars, N, basis)
@@ -396,7 +414,7 @@ class basis_1d(lattice_basis):
             else:
                 self._conserved += "ZA & ZB"
 
-            self._op = ops_module.zA_zB_op
+            _assign_op("zA_zB_op")
 
             basis = _np.empty((Ns,), dtype=self._basis_type)
             N = _np.empty((Ns,), dtype=_np.int8)
@@ -416,7 +434,7 @@ class basis_1d(lattice_basis):
                 self._conserved = "P"
             basis = _np.empty((Ns,), dtype=self._basis_type)
             N = _np.empty((Ns,), dtype=_np.int8)
-            self._op = ops_module.p_op
+            _assign_op("p_op")
 
             if Np is None:
                 Ns = basis_module.p_basis(L, pblock, self._pars, N, basis)
@@ -434,7 +452,7 @@ class basis_1d(lattice_basis):
                 self._conserved += "Z"
             basis = _np.empty((Ns,), dtype=self._basis_type)
             N = _np.empty((Ns,), dtype=_np.int8)
-            self._op = ops_module.z_op
+            _assign_op("z_op")
 
             if Np is None:
                 Ns = basis_module.z_basis(L, zblock, self._pars, N, basis)
@@ -452,7 +470,7 @@ class basis_1d(lattice_basis):
                 self._conserved += "ZA"
             basis = _np.empty((Ns,), dtype=self._basis_type)
             N = _np.empty((Ns,), dtype=_np.int8)
-            self._op = ops_module.zA_op
+            _assign_op("zA_op")
 
             if Np is None:
                 Ns = basis_module.zA_basis(L, zAblock, self._pars, N, basis)
@@ -470,7 +488,7 @@ class basis_1d(lattice_basis):
                 self._conserved += "ZB"
             basis = _np.empty((Ns,), dtype=self._basis_type)
             N = _np.empty((Ns,), dtype=_np.int8)
-            self._op = ops_module.zB_op
+            _assign_op("zB_op")
 
             if Np is None:
                 Ns = basis_module.zB_basis(L, zBblock, self._pars, N, basis)
@@ -488,7 +506,7 @@ class basis_1d(lattice_basis):
                 self._conserved += "PZ"
             basis = _np.empty((Ns,), dtype=self._basis_type)
             N = _np.empty((Ns,), dtype=_np.int8)
-            self._op = ops_module.pz_op
+            _assign_op("pz_op")
 
             if Np is None:
                 Ns = basis_module.pz_basis(L, pzblock, self._pars, N, basis)
@@ -505,7 +523,7 @@ class basis_1d(lattice_basis):
             else:
                 self._conserved = "T"
             basis = _np.empty((Ns,), dtype=self._basis_type)
-            self._op = ops_module.t_op
+            _assign_op("t_op")
 
             if self._basis_type == object:
                 N = _np.empty(basis.shape, dtype=_np.int32)
@@ -523,12 +541,12 @@ class basis_1d(lattice_basis):
 
         else:
             if Np is None:
-                self._op = ops_module.op
+                _assign_op("op")
                 basis = _np.empty((Ns,), dtype=self._basis_type)
                 Ns = basis_module.basis(L, self._pars, basis)
                 self._Ns = Ns
             else:
-                self._op = ops_module.n_op
+                _assign_op("n_op")
                 basis = _np.empty((Ns,), dtype=self._basis_type)
                 Ns = basis_module.n_basis(L, Np, self._pars, basis, Np_list)
                 self._Ns = Ns
@@ -598,6 +616,25 @@ class basis_1d(lattice_basis):
                     self._Np_list = Np_list[arg].copy()
 
             self._op_args = [self._basis, self._pars]
+
+    def __getstate__(self):
+        state = dict(self.__dict__)
+        state.pop("_bitops", None)
+        state.pop("_op", None)
+        state.pop("_make_n_basis", None)
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        basis_module = importlib.import_module(self._basis_module_name)
+        ops_module = importlib.import_module(self._ops_module_name)
+        self._bitops = bitops(basis_module, **self._blocks_1d)
+        if self._op_name is not None:
+            self._op = getattr(ops_module, self._op_name)
+        if self._make_n_basis_name is not None:
+            self._make_n_basis = getattr(
+                basis_module, self._make_n_basis_name
+            )
 
     @property
     def L(self):
