@@ -9,9 +9,7 @@ import scipy as _scipy
 import scipy.sparse as _sp
 from scipy.sparse.linalg import expm_multiply as _expm_multiply
 # multi-processing modules
-from multiprocessing import Process as _Process
-from multiprocessing import Queue as _Queue
-from multiprocessing import Event as _Event
+import multiprocessing as _mp
 
 from joblib import Parallel as _Parallel
 from joblib import delayed as _delayed
@@ -153,6 +151,22 @@ def _worker(gen_func,args_list,q,e):
 
 	q.close()
  
+def _get_context():
+	"""Return the active multiprocessing context.
+
+	Using ``multiprocessing.get_context`` ensures we honour the start method
+	selected by the application (e.g. ``spawn`` on macOS) when creating
+	processes, queues and events.  Falling back to the ``multiprocessing``
+	module itself retains compatibility with older Python versions where
+	``get_context`` is not available.
+	"""
+
+	try:
+		return _mp.get_context()
+	except AttributeError:  # pragma: no cover - Python < 3.4
+		return _mp
+
+
 def _generate_parallel(n_process,n_iter,gen_func,args_list):
 	"""
 	Generator which spawns processes to run generators, then uses a queue for each process to retrieve 
@@ -187,13 +201,14 @@ def _generate_parallel(n_process,n_iter,gen_func,args_list):
 	sub_lists.extend([ args_list[n_left + i*n_pp:n_left + (i+1)*n_pp] for i in range(n_process-1)])
 
 	# create lists of queues, events, and processes.
+	ctx = _get_context()
 	es = []
 	qs = []
 	ps = []
 	for i in range(n_process):
-		e = _Event()
-		q = _Queue(1)
-		p = _Process(target=_worker, args=(gen_func,sub_lists[i],q,e))
+		e = ctx.Event()
+		q = ctx.Queue(1)
+		p = ctx.Process(target=_worker, args=(gen_func,sub_lists[i],q,e))
 		p.daemon = True
 		es.append(e)
 		qs.append(q)
